@@ -25,7 +25,7 @@
   目标：验证 simple 模式工具栏、hoverbar、内容编辑链路没有和 default 模式一起回归。
 
 - [ ] `tests/e2e`：补富文本粘贴场景
-  目标：不仅测 plain text，还要覆盖 HTML paste 到 paragraph、list、table cell 的结果。
+  已覆盖：真实剪贴板中的行内 HTML 粘贴到 table cell。待补：HTML 粘贴到 paragraph、list。
 
 - [ ] `tests/e2e`：补 `setHtml` 关键回归场景
   目标：覆盖空字符串、table 后跟 paragraph、含样式文本、含 list 的回填结果。

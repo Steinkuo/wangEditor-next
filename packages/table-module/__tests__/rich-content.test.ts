@@ -31,6 +31,17 @@ function getCellBlockTypes(editor: ReturnType<typeof createEditor>) {
   return getFirstCell(editor).children.map((child: any) => child.type)
 }
 
+function pasteAtCellEnd(editor: ReturnType<typeof createEditor>, html: string, plain = '') {
+  const point = editor.end([0, 0, 0])
+  const data: Record<string, string> = { 'text/html': html, 'text/plain': plain }
+
+  editor.select({ anchor: point, focus: point })
+  editor.insertData({
+    files: [],
+    getData: (type: string) => data[type] || '',
+  } as unknown as DataTransfer)
+}
+
 describe('table rich cell content', () => {
   it('preserves paragraph and list blocks from HTML to Slate to HTML', () => {
     const editor = createEditor({ html: RICH_CELL_HTML })
@@ -250,6 +261,83 @@ describe('table rich cell content', () => {
     expect(editor.getHtml()).toContain('<ul><li>粘贴列表</li></ul>')
   })
 
+  it.each([
+    {
+      name: 'bare strong with only HTML',
+      html: '<strong>甲</strong>',
+      plain: '',
+      leaves: [{ text: 'A' }, { text: '甲', bold: true }],
+    },
+    {
+      name: 'bare strong with a plain text alternative',
+      html: '<strong>甲</strong>',
+      plain: '甲',
+      leaves: [{ text: 'A' }, { text: '甲', bold: true }],
+    },
+    {
+      name: 'strong inside a paragraph',
+      html: '<p><strong>甲</strong></p>',
+      plain: '甲',
+      leaves: [{ text: 'A' }, { text: '甲', bold: true }],
+    },
+    {
+      name: 'mixed text, nested marks and inline code',
+      html: '前<em><strong>甲</strong></em>中<code>乙</code>后',
+      plain: '',
+      leaves: [
+        { text: 'A前' },
+        { text: '甲', bold: true, italic: true },
+        { text: '中' },
+        { text: '乙', code: true },
+        { text: '后' },
+      ],
+    },
+    {
+      name: 'a link followed by a line break and plain text',
+      html: '<meta charset="utf-8"><a href="/docs">文档</a><br>后',
+      plain: '',
+      leaves: [
+        { text: 'A' },
+        { type: 'link', url: '/docs', target: '', children: [{ text: '文档' }] },
+        { text: '\n后' },
+      ],
+    },
+    {
+      name: 'an unsupported block alongside a mark falls back to plain text',
+      html: '<h2>标题</h2><em>甲</em>',
+      plain: '标题甲',
+      leaves: [{ text: 'A标题甲' }],
+    },
+    {
+      name: 'nested table with an inline mark falls back to plain text',
+      html: '<table><tr><td><strong>甲</strong></td></tr></table>',
+      plain: '甲',
+      leaves: [{ text: 'A甲' }],
+    },
+  ])('pastes $name into the current cell', ({ html, plain, leaves }) => {
+    const editor = createEditor({ html: '<table><tr><td>A</td></tr></table>' })
+    const expected = [{ type: 'paragraph', children: leaves }]
+
+    pasteAtCellEnd(editor, html, plain)
+    expect(getFirstCell(editor).children).toEqual(expected)
+    editor.setHtml(editor.getHtml())
+    expect(getFirstCell(editor).children).toEqual(expected)
+  })
+
+  it.each(['inline', 'class'])('uses the configured HTML sanitizer for inline paste in %s mode', mode => {
+    const sanitizeHtml = vi.fn((html: string) => html.replace('original', 'filtered'))
+    const editor = createEditor({
+      config: { sanitizeHtml, textStyleMode: mode },
+      html: '<table><tr><td>A</td></tr></table>',
+    })
+
+    sanitizeHtml.mockClear()
+    pasteAtCellEnd(editor, '<u>original</u>')
+
+    expect(sanitizeHtml).toHaveBeenCalledTimes(1)
+    expect(editor.getHtml()).toContain('<p>A<u>filtered</u></p>')
+  })
+
   it('preserves supported media blocks from internal Slate fragments', () => {
     const editor = createEditor({
       html: '<table><tbody><tr><td><p>A</p></td></tr></tbody></table>',
@@ -275,6 +363,9 @@ describe('table rich cell content', () => {
       getData(type: string) {
         if (type === 'application/x-slate-fragment') {
           return encodedFragment
+        }
+        if (type === 'text/html') {
+          return '<strong>HTML alternative</strong>'
         }
         if (type === 'text/plain') {
           return 'fallback'

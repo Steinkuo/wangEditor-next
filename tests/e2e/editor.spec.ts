@@ -2030,6 +2030,38 @@ test.describe('Basic Editor', () => {
     await expect(page.getByTestId('editor-html')).toContainText('pasted text')
   })
 
+  test('pastes inline HTML from the clipboard into a table cell', async ({ page }) => {
+    await setEditorHtml(page, '<table><tr><td>起</td></tr></table>')
+    const cell = getEditable(page).locator('td').first()
+    const selection = () => page.evaluate(() => (window as any).wangEditorExampleBridge.editor.selection)
+    const start = { path: [0, 0, 0, 0, 0], offset: 1 }
+    const end = { path: [0, 0, 0, 0, 1], offset: 1 }
+
+    await cell.click()
+    await page.keyboard.press('End')
+    await expect.poll(selection).toEqual({ anchor: start, focus: start })
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.evaluate(async () => {
+      const html = new Blob(['<strong>甲</strong>'], { type: 'text/html' })
+
+      await navigator.clipboard.write([new ClipboardItem({ 'text/html': html })])
+    })
+    await page.keyboard.press('Control+V')
+    await expect(cell).toHaveText('起甲')
+    await expect(cell.locator('strong')).toHaveText('甲')
+    await expect.poll(selection).toEqual({ anchor: end, focus: end })
+
+    const pastedHtml = await page.evaluate(() => (window as any).wangEditorExampleBridge.editor.getHtml())
+
+    expect(pastedHtml).toContain('<p>起<strong>甲</strong></p>')
+    await page.keyboard.press('Control+z')
+    await expect(cell).toHaveText('起')
+    await expect.poll(selection).toEqual({ anchor: start, focus: start })
+    await setEditorHtml(page, pastedHtml)
+    await expect(cell).toHaveText('起甲')
+    await expect(cell.locator('strong')).toHaveText('甲')
+  })
+
   test('handles image drag and drop', async ({ page }) => {
     await dropImage(page)
 

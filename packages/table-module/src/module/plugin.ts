@@ -3,7 +3,7 @@
  * @author wangfupeng
  */
 
-import { DomEditor, htmlToContent, IDomEditor } from '@wangeditor-next/core'
+import { DomEditor, htmlToContent, IDomEditor, TEXT_TAGS } from '@wangeditor-next/core'
 import {
   Descendant,
   Editor,
@@ -22,6 +22,7 @@ import { EDITOR_TO_SELECTION } from './weak-maps'
 import { withSelection } from './with-selection'
 
 const CELL_BREAK = '\n'
+const INLINE_HTML_SELECTOR = [...TEXT_TAGS, 'a', 'code'].join(',')
 
 function isSupportedCellFragment(editor: IDomEditor, fragment: Descendant[]): boolean {
   return (
@@ -35,18 +36,30 @@ function isSupportedCellFragment(editor: IDomEditor, fragment: Descendant[]): bo
   )
 }
 
-function parseSupportedCellBlockHtml(editor: IDomEditor, html: string): Descendant[] | null {
-  if (!html || !/<(p|ol|ul|li|pre|figure)\b/i.test(html)) {
+function parseSupportedCellHtml(editor: IDomEditor, html: string): Descendant[] | null {
+  if (!html) {
     return null
   }
 
-  const container = document.createElement('div')
+  const template = document.createElement('template')
+  const container = template.content
 
-  container.innerHTML = html
+  template.innerHTML = html
   // Keep the established image paste path, which handles uploads and
   // browser-specific image payloads outside the block-fragment parser.
   if (container.querySelector('table, img')) {
     return null
+  }
+
+  if (!container.querySelector('p, ol, ul, li, pre, figure')) {
+    if (
+      !container.querySelector(INLINE_HTML_SELECTOR) ||
+      container.querySelector(`:not(${INLINE_HTML_SELECTOR},br,meta[charset])`)
+    ) {
+      return null
+    }
+    // Give inline marks and their sibling text nodes one paragraph to parse together.
+    html = `<p>${html}</p>`
   }
 
   const fragment = htmlToContent(editor, html)
@@ -486,7 +499,7 @@ function withTable<T extends IDomEditor>(editor: T): T {
     const html = data.getData('text/html')
     const structuredFragment =
       parseSupportedSlateFragment(newEditor, fragment) ||
-      parseSupportedCellBlockHtml(newEditor, html)
+      parseSupportedCellHtml(newEditor, html)
 
     if (structuredFragment) {
       Transforms.insertFragment(newEditor, structuredFragment)
